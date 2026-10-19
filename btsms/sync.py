@@ -63,6 +63,7 @@ class Sync:
             for h in await self.map.list_all(folder):
                 self._ingest(h, folder)
                 count += 1
+        self.store.reconcile_sent()
         self.store.commit()
         self.changed()
         return count
@@ -90,6 +91,8 @@ class Sync:
             self.store.set_body(handle, msg.body)
             done += 1
         if done:
+            self.store.commit()
+            self.store.reconcile_sent()
             self.store.commit()
             self.changed()
         return done
@@ -135,19 +138,27 @@ class Sync:
         asyncio.ensure_future(self._settle_sent(address, text))
 
     async def _settle_sent(self, address: str, text: str):
-        """Replace the local placeholder once the phone files it under 'sent'."""
-        for delay in (2, 5, 15):
+        """Replace the local placeholder once the phone files it under 'sent'.
+
+        The new-message notification often ingests the sent copy before we
+        look, so match on content rather than on newly seen handles.
+        """
+        for delay in (2, 5, 15, 30):
             await asyncio.sleep(delay)
             try:
-                new = await self.refresh("sent", 5)
-                await self.fetch_bodies(handles=new)
-            except ObexError:
+                await self.refresh("sent", 5)
+                await self.fetch_bodies(address=address, limit=5)
+            except (ObexError, asyncio.TimeoutError):
                 continue
-            if new:
-                self.store.drop_local_matching(address, text)
-                self.store.commit()
-                self.changed()
+            if self.reconcile():
                 return
+
+    def reconcile(self) -> int:
+        dropped = self.store.reconcile_sent()
+        if dropped:
+            self.store.commit()
+            self.changed()
+        return dropped
 
     async def mark_read(self, address: str):
         handles = self.store.mark_read(address)

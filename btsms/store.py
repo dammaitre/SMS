@@ -102,11 +102,16 @@ class Store:
     def set_state(self, handle: str, state: str):
         self.db.execute("UPDATE messages SET state = ? WHERE handle = ?", (state, handle))
 
-    def drop_local_matching(self, address: str, body: str):
-        """A pending local send showed up in 'sent' under its real handle."""
-        self.db.execute("""DELETE FROM messages WHERE handle LIKE 'local-%'
-                           AND address = ? AND body = ? AND state = 'pending'""",
-                        (address, body))
+    def reconcile_sent(self) -> int:
+        """Drop pending local sends that now exist in 'sent' under a real handle."""
+        cur = self.db.execute("""
+            DELETE FROM messages WHERE handle LIKE 'local-%' AND state = 'pending'
+            AND EXISTS (SELECT 1 FROM messages s
+                        WHERE s.handle NOT LIKE 'local-%' AND s.outgoing = 1
+                        AND s.address = messages.address
+                        AND trim(s.body) = trim(messages.body)
+                        AND s.ts >= messages.ts - 300)""")
+        return cur.rowcount
 
     def mark_read(self, address: str) -> list[str]:
         """Mark a conversation read locally; returns handles that were unread."""

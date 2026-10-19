@@ -135,11 +135,17 @@ class TestStore(unittest.TestCase):
         self.assertEqual(self.s.messages("+33600000001")[0].body, "salut 🚀")
         self.assertEqual(self.s.incomplete(), ["2", "3"])
 
-    def test_local_send_lifecycle(self):
-        self.s.add_local("local-x", "+33600000001", "yo")
+    def test_local_send_reconciled(self):
+        self.s.add_local("local-x", "+33600000001", "yo 🚀")
         self.assertEqual(self.s.messages("+33600000001")[-1].state, "pending")
-        self.s.drop_local_matching("+33600000001", "yo")
-        self.assertEqual(len(self.s.messages("+33600000001")), 2)
+        self.assertEqual(self.s.reconcile_sent(), 0)  # not on the phone yet
+        local_ts = self.s.messages("+33600000001")[-1].ts
+        # Sent copy already ingested (e.g. by the notification), body fetched later.
+        self.s.upsert_header("9", "sent", "+33600000001", "Alice", local_ts + 5, "yo ", True, True)
+        self.assertEqual(self.s.reconcile_sent(), 0)  # subject lost the emoji
+        self.s.set_body("9", "yo 🚀")
+        self.assertEqual(self.s.reconcile_sent(), 1)
+        self.assertEqual([m.handle for m in self.s.messages("+33600000001")], ["1", "2", "9"])
 
     def test_mark_read(self):
         self.assertEqual(self.s.mark_read("+33600000001"), ["1"])

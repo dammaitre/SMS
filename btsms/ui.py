@@ -85,14 +85,19 @@ class NewConversation(ModalScreen[str | None]):
 
 class BtSms(App):
     TITLE = "btsms"
+    # One blue ($primary-darken-2) for everything "mine/active": selected
+    # conversation, outgoing bubbles, focused input, unread badge.
     CSS = """
     Screen { layout: vertical; }
     #main { height: 1fr; }
     #convs { width: 34; border: none; border-right: solid $panel-lighten-2;
              background: $surface; padding: 0; }
     #convs > .option-list--option { padding: 0 1; }
+    #convs > .option-list--option-highlighted,
+    #convs:focus > .option-list--option-highlighted {
+        background: $primary-darken-2; color: $text; text-style: none; }
     #right { width: 1fr; }
-    #header { height: 1; padding: 0 1; background: $panel; text-style: bold; }
+    #header { height: 1; padding: 0 2; background: $panel; text-style: bold; }
     #log { height: 1fr; padding: 0 1; }
     .day { width: 100%; content-align: center middle; color: $text-muted; margin: 1 0 0 0; }
     .row { height: auto; width: 100%; margin: 1 0 0 0; }
@@ -102,14 +107,18 @@ class BtSms(App):
     .out .bubble { background: $primary-darken-2; }
     .pending .bubble { color: $text-muted; }
     .failed .bubble { background: $error-darken-2; }
-    #compose { dock: bottom; height: 3; border: tall $panel-lighten-2; }
-    #compose:focus { border: tall $accent; }
+    #compose { dock: bottom; height: 3; margin: 1 1; padding: 0 1;
+               border: tall $panel-lighten-2; background: $surface; }
+    #compose:focus { border: tall $primary-darken-2; background: $surface; }
     #status { height: 1; padding: 0 1; background: $panel-darken-1; color: $text-muted; }
     NewConversation { align: center middle; }
-    #dialog { width: 60; height: 24; border: thick $accent; background: $surface;
+    #dialog { width: 60; height: 24; border: thick $primary-darken-2; background: $surface;
               padding: 0 1; }
     #dialog-title { text-style: bold; padding: 0 0 1 0; }
+    #query { border: tall $primary-darken-2; }
     #matches { height: 1fr; border: none; }
+    #matches > .option-list--option-highlighted {
+        background: $primary-darken-2; color: $text; text-style: none; }
     """
     BINDINGS = [
         Binding("ctrl+up", "move(-1)", "Prev", priority=True),
@@ -197,6 +206,7 @@ class BtSms(App):
     def refresh_views(self):
         self._refresh_pending = False
         convs = self.store.conversations()
+        badge = f"bold {self.get_css_variables()['primary-lighten-1']}"
         self.addresses = [c.address for c in convs]
         options = []
         if self.draft and self.draft not in self.addresses:
@@ -212,7 +222,7 @@ class BtSms(App):
             line1.append(fmt_time(c.last_ts), style="dim")
             line2 = Text(preview[:30] or " ", style="dim")
             if c.unread:
-                line2 = Text.assemble((f"● {c.unread} ", "bold cyan"), preview[:26])
+                line2 = Text.assemble((f"● {c.unread} ", badge), preview[:26])
             options.append(Option(Text.assemble(line1, "\n", line2)))
         convlist = self.query_one("#convs", OptionList)
         convlist.set_options(options)
