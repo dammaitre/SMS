@@ -86,5 +86,20 @@ class TestIncoming(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(unread["+33600000002"], 1)
 
 
+
+
+class TestPaste(unittest.IsolatedAsyncioTestCase):
+    async def test_ctrl_v_pastes_system_clipboard(self):
+        import btsms.ui as ui
+        original = ui.PASTE_COMMANDS
+        ui.PASTE_COMMANDS = (["missing-tool"], ["printf", "collé 🚀\\nligne 2\\n"])
+        self.addCleanup(setattr, ui, "PASTE_COMMANDS", original)
+        app = BtSms(fake_store(), connect=False)
+        async with app.run_test() as pilot:
+            await pilot.press("a", "space", "ctrl+v")
+            await pilot.pause()
+            self.assertEqual(app.query_one("#compose").value, "a collé 🚀 ligne 2")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,12 @@ from .sync import Sync
 log = logging.getLogger(__name__)
 
 NOTIFY_SEND = shutil.which("notify-send")
+# Tried in order for Ctrl+V; Textual's own clipboard only holds text copied in-app.
+PASTE_COMMANDS = (
+    ["wl-paste", "--no-newline", "--type", "text"],
+    ["xclip", "-selection", "clipboard", "-o"],
+    ["xsel", "--clipboard", "--output"],
+)
 
 
 def fmt_time(ts: float) -> str:
@@ -31,6 +37,32 @@ def fmt_time(ts: float) -> str:
 
 def fmt_day(ts: float) -> str:
     return time.strftime("%A %d %B %Y", time.localtime(ts))
+
+
+async def system_clipboard() -> str | None:
+    for cmd in PASTE_COMMANDS:
+        if not shutil.which(cmd[0]):
+            continue
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), 2)
+        except (OSError, asyncio.TimeoutError):
+            continue
+        if proc.returncode == 0:
+            return out.decode("utf-8", "replace")
+    return None
+
+
+class ComposeInput(Input):
+    """Message box whose Ctrl+V pastes from the desktop clipboard."""
+
+    async def action_paste(self):
+        text = await system_clipboard()
+        if text is None:
+            text = self.app.clipboard
+        start, end = self.selection
+        self.replace(" ".join(text.split("\n")).strip("\r "), start, end)
 
 
 class NewConversation(ModalScreen[str | None]):
@@ -156,7 +188,7 @@ class BtSms(App):
             with Vertical(id="right"):
                 yield Static("", id="header")
                 yield VerticalScroll(id="log")
-                yield Input(placeholder="Message…  (Enter to send)", id="compose")
+                yield ComposeInput(placeholder="Message…  (Enter to send)", id="compose")
         yield Static("", id="status")
 
     def on_mount(self):
