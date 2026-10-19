@@ -1,0 +1,16 @@
+[project]
+name = "btsms"
+version = "0.1.0"
+description = "Send and read SMS from the terminal through a Bluetooth-paired Android phone (BlueZ obexd MAP/PBAP)"
+requires-python = ">=3.11"
+dependencies = ["dbus-fast", "textual"]
+
+[project.scripts]
+btsms = "btsms.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["btsms"]

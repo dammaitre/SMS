@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: btsms
+Version: 0.1.0
+Summary: Send and read SMS from the terminal through a Bluetooth-paired Android phone (BlueZ obexd MAP/PBAP)
+Requires-Python: >=3.11
+Requires-Dist: dbus-fast
+Requires-Dist: textual

@@ -1,0 +1,17 @@
+pyproject.toml
+btsms/__init__.py
+btsms/__main__.py
+btsms/bmessage.py
+btsms/map_client.py
+btsms/obex.py
+btsms/phone.py
+btsms/store.py
+btsms/sync.py
+btsms/ui.py
+btsms.egg-info/PKG-INFO
+btsms.egg-info/SOURCES.txt
+btsms.egg-info/dependency_links.txt
+btsms.egg-info/entry_points.txt
+btsms.egg-info/requires.txt
+btsms.egg-info/top_level.txt
+tests/test_core.py

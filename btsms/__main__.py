@@ -1,6 +1,9 @@
 """btsms - SMS from the terminal through a Bluetooth-paired Android phone.
 
+    python -m btsms          interactive UI
     python -m btsms sync     sync messages + contacts, print conversations
+
+Log: ~/.cache/btsms/btsms.log
 """
 
 import asyncio
@@ -8,7 +11,7 @@ import logging
 import sys
 import time
 
-from .obex import find_device
+from .obex import CACHE, find_device
 from .store import Store
 from .sync import Sync
 
@@ -36,8 +39,13 @@ async def cmd_sync(fetch: int = 50):
 
 
 def main():
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    CACHE.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=CACHE / "btsms.log", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     match sys.argv[1:]:
+        case []:
+            from .ui import BtSms
+            BtSms().run()
         case ["sync"]:
             asyncio.run(cmd_sync())
         case _:

@@ -69,7 +69,8 @@ class Store:
             INSERT INTO messages (handle, folder, address, name, ts, body, read, outgoing)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (handle) DO UPDATE SET
-                folder = excluded.folder, name = excluded.name, read = excluded.read,
+                folder = excluded.folder, name = excluded.name,
+                read = MAX(read, excluded.read),  -- keep reads made here before sync
                 body = CASE WHEN complete THEN body ELSE excluded.body END
         """, (handle, folder, address, name, ts, subject, int(read), int(outgoing)))
 

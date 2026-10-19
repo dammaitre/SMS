@@ -1,0 +1,2 @@
+[console_scripts]
+btsms = btsms.__main__:main

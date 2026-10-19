@@ -152,6 +152,7 @@ class Sync:
     async def mark_read(self, address: str):
         handles = self.store.mark_read(address)
         self.store.commit()
+        self.changed()
         for handle in handles:
             if path := self.paths.get(handle):
                 try:
