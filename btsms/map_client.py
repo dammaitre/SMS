@@ -96,12 +96,16 @@ class MapClient:
 
     def _on_signal(self, msg: Message):
         # New-message events: obexd adds a stub Message1 (Status=notification,
-        # no sender/subject), sometimes twice for the same handle.
+        # no sender/subject), sometimes twice for the same handle. Objects
+        # created by our own ListMessages are announced the same way but carry
+        # Status=complete, so they are ignored.
         if (self.on_new and msg.message_type == MessageType.SIGNAL
                 and msg.member == "InterfacesAdded"):
             path, ifaces = msg.body
-            if path.startswith(self.s.path + "/message") and MESSAGE in ifaces:
-                result = self.on_new(path, unwrap(ifaces[MESSAGE]))
+            props = unwrap(ifaces.get(MESSAGE, {}))
+            if (path.startswith(self.s.path + "/message")
+                    and props.get("Status") == "notification"):
+                result = self.on_new(path, props)
                 if result is not None:
                     asyncio.ensure_future(result)
 

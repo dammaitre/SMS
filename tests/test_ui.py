@@ -61,5 +61,30 @@ class TestUI(unittest.IsolatedAsyncioTestCase):
     shot_dir = __import__('os').environ.get('BTSMS_SHOT_DIR', '/tmp')
 
 
+
+
+class TestIncoming(unittest.IsolatedAsyncioTestCase):
+    async def test_toast_only_for_other_conversations(self):
+        store = fake_store()
+        app = BtSms(store, connect=False)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            self.assertEqual(app.current, "+33600000001")
+            store.upsert_header("10", "inbox", "+33600000001", "Alice", time.time(), "là", False, False)
+            store.upsert_header("11", "inbox", "+33600000002", "", time.time(), "Tu es où ?", False, False)
+            store.commit()
+            app.on_incoming(["10", "11"])
+            app.schedule_refresh()
+            await pilot.pause(0.2)
+            toasts = list(app._notifications)
+            self.assertEqual([t.title for t in toasts], ["Bob Durand"])
+            self.assertEqual(toasts[0].message, "Tu es où ?")
+            # The open conversation got the new message and was marked read.
+            self.assertEqual(app.store.messages(app.current)[-1].body, "là")
+            unread = {c.address: c.unread for c in app.store.conversations()}
+            self.assertEqual(unread["+33600000001"], 0)
+            self.assertEqual(unread["+33600000002"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

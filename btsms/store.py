@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS messages (
     complete INTEGER NOT NULL DEFAULT 0, -- body fetched with Get (subject drops emoji)
     read     INTEGER NOT NULL DEFAULT 0,
     outgoing INTEGER NOT NULL DEFAULT 0,
-    state    TEXT NOT NULL DEFAULT ''    -- '' | pending | failed (local sends)
+    state    TEXT NOT NULL DEFAULT ''    -- '' | queued | pending | failed (local sends)
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages (address, ts);
 CREATE TABLE IF NOT EXISTS contacts (
@@ -74,6 +74,11 @@ class Store:
                 body = CASE WHEN complete THEN body ELSE excluded.body END
         """, (handle, folder, address, name, ts, subject, int(read), int(outgoing)))
 
+    def get(self, handle: str) -> Msg | None:
+        r = self.db.execute("""SELECT handle, address, ts, body, outgoing, read, state
+                               FROM messages WHERE handle = ?""", (handle,)).fetchone()
+        return Msg(r[0], r[1], r[2], r[3], bool(r[4]), bool(r[5]), r[6]) if r else None
+
     def has(self, handle: str) -> bool:
         return self.db.execute("SELECT 1 FROM messages WHERE handle = ?",
                                (handle,)).fetchone() is not None
@@ -92,12 +97,21 @@ class Store:
         q += " ORDER BY ts DESC LIMIT ?"
         return [r[0] for r in self.db.execute(q, args + (limit,))]
 
-    def add_local(self, handle: str, address: str, body: str):
+    def add_local(self, handle: str, address: str, body: str, state: str = "pending"):
         self.db.execute("""
             INSERT INTO messages (handle, folder, address, ts, body, complete, read,
                                   outgoing, state)
-            VALUES (?, 'outbox', ?, ?, ?, 1, 1, 1, 'pending')""",
-                        (handle, address, time.time(), body))
+            VALUES (?, 'outbox', ?, ?, ?, 1, 1, 1, ?)""",
+                        (handle, address, time.time(), body, state))
+
+    def locals(self, state: str, address: str | None = None) -> list[str]:
+        """Handles of local sends in a given state, oldest first."""
+        q = "SELECT handle FROM messages WHERE handle LIKE 'local-%' AND state = ?"
+        args: tuple = (state,)
+        if address:
+            q += " AND address = ?"
+            args += (address,)
+        return [r[0] for r in self.db.execute(q + " ORDER BY ts", args)]
 
     def set_state(self, handle: str, state: str):
         self.db.execute("UPDATE messages SET state = ? WHERE handle = ?", (state, handle))
@@ -105,7 +119,8 @@ class Store:
     def reconcile_sent(self) -> int:
         """Drop pending local sends that now exist in 'sent' under a real handle."""
         cur = self.db.execute("""
-            DELETE FROM messages WHERE handle LIKE 'local-%' AND state = 'pending'
+            DELETE FROM messages WHERE handle LIKE 'local-%'
+            AND state IN ('pending', 'failed')  -- a 'failed' push may still have gone out
             AND EXISTS (SELECT 1 FROM messages s
                         WHERE s.handle NOT LIKE 'local-%' AND s.outgoing = 1
                         AND s.address = messages.address

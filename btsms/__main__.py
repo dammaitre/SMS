@@ -8,6 +8,7 @@ Log: ~/.cache/btsms/btsms.log
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 import time
 
@@ -40,7 +41,8 @@ async def cmd_sync(fetch: int = 50):
 
 def main():
     CACHE.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=CACHE / "btsms.log", level=logging.INFO,
+    handler = RotatingFileHandler(CACHE / "btsms.log", maxBytes=1_000_000, backupCount=2)
+    logging.basicConfig(handlers=[handler], level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     match sys.argv[1:]:
         case []:

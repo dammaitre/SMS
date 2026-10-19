@@ -1,6 +1,8 @@
 """Textual front end: conversation list, read pane, input box, status bar."""
 
+import asyncio
 import logging
+import shutil
 import time
 
 from rich.text import Text
@@ -18,6 +20,8 @@ from .store import Msg, Store
 from .sync import Sync
 
 log = logging.getLogger(__name__)
+
+NOTIFY_SEND = shutil.which("notify-send")
 
 
 def fmt_time(ts: float) -> str:
@@ -105,7 +109,7 @@ class BtSms(App):
     .row.out { align-horizontal: right; }
     .bubble { width: auto; max-width: 75%; padding: 0 1; background: $panel; }
     .out .bubble { background: $primary-darken-2; }
-    .pending .bubble { color: $text-muted; }
+    .pending .bubble, .queued .bubble { color: $text-muted; }
     .failed .bubble { background: $error-darken-2; }
     #compose { dock: bottom; height: 3; margin: 1 1; padding: 0 1;
                border: tall $panel-lighten-2; background: $surface; }
@@ -126,6 +130,7 @@ class BtSms(App):
         Binding("alt+up", "move(-1)", show=False, priority=True),
         Binding("alt+down", "move(1)", show=False, priority=True),
         Binding("ctrl+n", "new", "New", priority=True),
+        Binding("ctrl+r", "retry", "Retry", priority=True),
         Binding("pageup", "scroll(-1)", show=False, priority=True),
         Binding("pagedown", "scroll(1)", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
@@ -142,6 +147,8 @@ class BtSms(App):
         self._shown: tuple = ()
         self._refresh_pending = False
         self._status = "offline (cache)"
+        self._alias = ""
+        self._focused = True  # terminal focus, if the terminal reports it
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
@@ -165,36 +172,56 @@ class BtSms(App):
     def set_status(self, text: str):
         self._status = text
         self.query_one("#status", Static).update(
-            text + "   ctrl+↑↓ switch · ctrl+n new · enter send · ctrl+q quit")
+            text + "   ctrl+↑↓ switch · ctrl+n new · enter send · ctrl+r retry · ctrl+q quit")
 
     async def start_sync(self):
-        try:
-            address, alias = await find_device()
-            self.set_status(f"… connecting to {alias}")
-            sync = Sync(self.store, address)
-            sync.listeners.append(self.schedule_refresh)
-            await sync.connect()
-            self.sync = sync
-            self.set_status(f"● {alias}  · refreshing")
-            for folder in ("inbox", "sent"):
-                await sync.refresh(folder, 20)
-            self.schedule_refresh()
-            if self.current:
-                await sync.fetch_bodies(address=self.current)
+        while True:
             try:
-                self.set_status(f"● {alias}  · contacts")
-                await sync.contacts()
-            except Exception as e:  # contacts are a nicety; keep going
-                log.warning("contacts: %s", e)
-            self.set_status(f"● {alias}  · history")
-            await sync.full()
-            if self.current:
-                await sync.fetch_bodies(address=self.current)
-            await sync.backfill()
-            self.set_status(f"● {alias}")
-        except Exception as e:
-            log.exception("sync")
-            self.set_status(f"✕ {e}")
+                address, self._alias = await find_device()
+                break
+            except Exception as e:
+                self.set_status(f"✕ {e} · retrying")
+                await asyncio.sleep(10)
+        self.sync = Sync(self.store, address)
+        self.sync.listeners.append(self.schedule_refresh)
+        self.sync.incoming.append(self.on_incoming)
+        self.sync.on_state.append(self.on_sync_state)
+        await self.sync.run()
+
+    def on_sync_state(self, state: str):
+        if state == "connected":
+            text = f"● {self._alias}"
+        elif state == "connecting":
+            text = f"… connecting to {self._alias}"
+        elif state.startswith("offline"):
+            text = f"○ {self._alias} {state}"
+        else:
+            text = f"● {self._alias} · {state}"
+        self.set_status(text)
+
+    def on_app_focus(self):
+        self._focused = True
+
+    def on_app_blur(self):
+        self._focused = False
+
+    def on_incoming(self, handles: list[str]):
+        """Ring; toast unless it is the open conversation; desktop pop-up if unfocused."""
+        self.bell()
+        for handle in handles:
+            m = self.store.get(handle)
+            if not m:
+                continue
+            title, body = self.title_for(m.address), " ".join(m.body.split())[:120] or "(empty)"
+            if m.address != self.current:
+                self.notify(body, title=title, timeout=8)
+            if not self._focused and NOTIFY_SEND:
+                self.run_worker(self.desktop_notify(title, body), group="notify")
+
+    async def desktop_notify(self, title: str, body: str):
+        proc = await asyncio.create_subprocess_exec(
+            NOTIFY_SEND, "-a", "btsms", "-i", "mail-message-new", title, body)
+        await proc.wait()
 
     def schedule_refresh(self):
         if not self._refresh_pending:
@@ -275,10 +302,12 @@ class BtSms(App):
                 yield Static(fmt_day(m.ts), classes="day")
             last_out = m.outgoing
             stamp = fmt_time(m.ts)
-            if m.state == "pending":
+            if m.state == "queued":
+                stamp = "queued · sent when the phone is back"
+            elif m.state == "pending":
                 stamp = "sending…"
             elif m.state == "failed":
-                stamp = "✕ not sent"
+                stamp = "✕ not sent · ctrl+r to retry"
             body = Text(m.body or "(empty)")
             body.append(f"\n{stamp}", style="dim")
             classes = ("row " + ("out" if m.outgoing else "in") + (" cont" if same_side else "")
@@ -290,7 +319,7 @@ class BtSms(App):
             return
         self.current = address
         self.show_messages()
-        if self.sync and self.store.incomplete(address, limit=1):
+        if self.sync and self.sync.connected and self.store.incomplete(address, limit=1):
             self.run_worker(self.sync.fetch_bodies(address=address), group="bodies")
 
     # ------------------------------------------------------------ actions
@@ -302,6 +331,17 @@ class BtSms(App):
         i = max(0, min(len(self.addresses) - 1, i + delta))
         self.query_one("#convs", OptionList).highlighted = i
         self.select(self.addresses[i])
+
+    def action_retry(self):
+        if not (self.sync and self.current and self.store.locals("failed", self.current)):
+            return
+
+        async def do_retry():
+            try:
+                await self.sync.retry(self.current)
+            except Exception as e:
+                self.notify(f"Send failed: {e}", severity="error")
+        self.run_worker(do_retry(), group="send")
 
     def action_scroll(self, direction: int):
         log_ = self.query_one("#log", VerticalScroll)
