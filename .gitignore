@@ -1,0 +1,6 @@
+/.venv/
+/build/
+/btsms
+*.egg-info/
+__pycache__/
+*.pyc

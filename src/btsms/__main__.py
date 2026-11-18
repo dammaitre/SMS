@@ -1,7 +1,7 @@
 """btsms - SMS from the terminal through a Bluetooth-paired Android phone.
 
-    python -m btsms          interactive UI
-    python -m btsms sync     sync messages + contacts, print conversations
+    btsms          interactive UI
+    btsms sync     sync messages + contacts, print conversations
 
 Log: ~/.cache/btsms/btsms.log
 """
